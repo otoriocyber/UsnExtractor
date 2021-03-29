@@ -332,7 +332,7 @@ def decode_attribute(attr):
 
 
 # find the mft record of a file in the mft
-def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster):
+def find_file_MFT_record(handle, target_file, parsed_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster):
     counter = 0
     final = 0
     jump = 0
@@ -342,7 +342,7 @@ def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, s
     for run in parsed_data_run:
         records_in_run = run.length * sectors_per_cluster / records_divisor
         counter += records_in_run
-        if counter > targetFile:
+        if counter > target_file:
             break
 
     if records_in_run < 0 or not run:
@@ -352,17 +352,17 @@ def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, s
     base = counter - records_in_run
     records_per_cluster = sectors_per_cluster / records_divisor
 
-    while final < targetFile:
+    while final < target_file:
         jump += records_per_cluster
         final = base + jump
 
     # records over the usn
-    records_too_much = final - targetFile
+    records_too_much = final - target_file
     location = run.offset * bytes_per_cluster + jump / records_per_cluster * bytes_per_cluster - records_too_much * mft_record_size
     handle.seek(int(location))
     record = handle.read(mft_record_size)
 
-    if int.from_bytes(record[44:48], byteorder="little") == targetFile:
+    if int.from_bytes(record[44:48], byteorder="little") == target_file:
         return location, record
     else:
         return
@@ -398,7 +398,8 @@ def resolve(handle, path, data_run, mft_record_size, sectors_per_cluster, bytes_
     if len(splitted) > 2:
         for i in range(len(splitted[2:])):
             part = splitted[i + 1]
-            result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
+            result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectors_per_cluster,
+                                          bytes_per_cluster)
             if not result:
                 print("parsing error")
                 exit(0)
@@ -416,7 +417,8 @@ def resolve(handle, path, data_run, mft_record_size, sectors_per_cluster, bytes_
 
             next_ref = get_ref(part, indx_entries)
             if i == len(splitted[2:]) - 1:
-                result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
+                result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectors_per_cluster,
+                                              bytes_per_cluster)
                 if result:
                     location, record = result
                     record = update_record(record)
@@ -447,7 +449,8 @@ def get_total_clusters(entry):
     return total_clusters
 
 
-def parse_attribute_list(attribute_list, usn_ref, handle, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster):
+def parse_attribute_list(attribute_list, usn_ref, handle, mft_data_run, mft_record_size, sectors_per_cluster,
+                         bytes_per_cluster):
     raw_offsets = []
     list_offset = int.from_bytes(attribute_list[20:22], byteorder="little")
     a_list = attribute_list[list_offset:]
@@ -455,7 +458,8 @@ def parse_attribute_list(attribute_list, usn_ref, handle, mft_data_run, mft_reco
     prev_size = 0
     prev_total_clusters = 0
     for tmp_ref in refs:
-        result = find_file_MFT_record(handle, tmp_ref, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
+        result = find_file_MFT_record(handle, tmp_ref, mft_data_run, mft_record_size, sectors_per_cluster,
+                                      bytes_per_cluster)
         if not result:
             print("Something went wrong")
             continue
@@ -508,7 +512,6 @@ Created by OTORIO - www.otorio.com
     parser.add_argument("-o", "--output", help="Output path", default="./usn.bin")
     args = parser.parse_args()
 
-
     output_path = args.output
     target_file = r"C:\$Extend\$UsnJrnl"
 
@@ -537,13 +540,15 @@ Created by OTORIO - www.otorio.com
     ref = resolve(handle, target_file, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
 
     print("[+] Finding usnjrnl record")
-    offset, record = find_file_MFT_record(handle, ref, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
+    offset, record = find_file_MFT_record(handle, ref, mft_data_run, mft_record_size, sectors_per_cluster,
+                                          bytes_per_cluster)
     record = update_record(record)
 
     print("[+] Finding raw offsets on disk")
     ntfs_attributes = get_attributes(record)
     if ntfs_attributes.attribute_list:
-        raw_offsets = parse_attribute_list(ntfs_attributes.attribute_list, ref, handle, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
+        raw_offsets = parse_attribute_list(ntfs_attributes.attribute_list, ref, handle, mft_data_run, mft_record_size,
+                                           sectors_per_cluster, bytes_per_cluster)
     else:
         raw_offsets = parse_attribute_data(handle, ntfs_attributes.data, bytes_per_cluster)
 
