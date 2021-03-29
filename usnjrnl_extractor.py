@@ -41,7 +41,7 @@ class BootSector:
         self.jump = buffer[0:3]
         self.SystemName = buffer[3:11]
         self.BytesPerSector = int.from_bytes(buffer[11:13], byteorder="little")
-        self.SectorsPerCluster = int.from_bytes(buffer[13:14], byteorder="little")
+        self.sectors_per_cluster = int.from_bytes(buffer[13:14], byteorder="little")
         self.ReservedSectors = int.from_bytes(buffer[14:16], byteorder="little")
         self.MediaDescriptor = int.from_bytes(buffer[21:22], byteorder="little")
         self.SectorsPerTrack = int.from_bytes(buffer[24:26], byteorder="little")
@@ -91,14 +91,14 @@ def swap(data):
 def extract_boot_sector(handle):
     data = handle.read(512)
     boot_sector = BootSector(data)
-    bytesPerCluster = boot_sector.BytesPerSector * boot_sector.SectorsPerCluster
-    mft_offset = bytesPerCluster * boot_sector.LogicalClusterNumberforthefileMFT
+    bytes_per_cluster = boot_sector.BytesPerSector * boot_sector.sectors_per_cluster
+    mft_offset = bytes_per_cluster * boot_sector.LogicalClusterNumberforthefileMFT
     if boot_sector.ClustersPerFileRecordSegment > 127:
         mft_record_size = 2 ** (256 - boot_sector.ClustersPerFileRecordSegment)
     else:
-        mft_record_size = bytesPerCluster * boot_sector.ClustersPerFileRecordSegment
+        mft_record_size = bytes_per_cluster * boot_sector.ClustersPerFileRecordSegment
 
-    return bytesPerCluster, mft_offset, mft_record_size, boot_sector.SectorsPerCluster
+    return bytes_per_cluster, mft_offset, mft_record_size, boot_sector.sectors_per_cluster
 
 
 def get_last_offset(runs):
@@ -150,7 +150,7 @@ def parse_data_run(data_run):
     return runs
 
 
-def get_raw_offset(handle, parsed, realSize, bytesPerCluster, raw_entry=None):
+def get_raw_offset(handle, parsed, real_size, bytes_per_cluster, raw_entry=None):
     header_name = ""
 
     if raw_entry:
@@ -168,32 +168,32 @@ def get_raw_offset(handle, parsed, realSize, bytesPerCluster, raw_entry=None):
         # sparse data - offset unknown
         if run.offset == 0:
             offset = 0
-            bytes_acc = bytesPerCluster * run.length
-            realSize -= bytesPerCluster * run.length
+            bytes_acc = bytes_per_cluster * run.length
+            real_size -= bytes_per_cluster * run.length
             raw_offsets.append(RawOffset(offset, bytes_acc, 0, 0))
             bytes_acc = 0
             continue
 
         # else - normal data
-        offset = run.offset * bytesPerCluster
+        offset = run.offset * bytes_per_cluster
         handle.seek(offset)
         g = run.length  # cluster len
-        while g > 16 and realSize > bytesPerCluster * 16:
-            bytes_acc += bytesPerCluster * 16
-            data = handle.read(bytesPerCluster * 16)
-            core_attribute += data[:bytesPerCluster * 16]
+        while g > 16 and real_size > bytes_per_cluster * 16:
+            bytes_acc += bytes_per_cluster * 16
+            data = handle.read(bytes_per_cluster * 16)
+            core_attribute += data[:bytes_per_cluster * 16]
             g -= 16
-            realSize -= bytesPerCluster * 16
+            real_size -= bytes_per_cluster * 16
 
         if g != 0:  # add leftovers
-            data = handle.read(bytesPerCluster * 16)
-            if realSize > bytesPerCluster * g:
-                core_attribute += data[:bytesPerCluster * g]
-                bytes_acc += bytesPerCluster * g
-                realSize -= bytesPerCluster * g
+            data = handle.read(bytes_per_cluster * 16)
+            if real_size > bytes_per_cluster * g:
+                core_attribute += data[:bytes_per_cluster * g]
+                bytes_acc += bytes_per_cluster * g
+                real_size -= bytes_per_cluster * g
             else:
-                core_attribute += data[:realSize]
-                bytes_acc += realSize
+                core_attribute += data[:real_size]
+                bytes_acc += real_size
 
         if raw_offsets:
             if raw_offsets[-1].offset == 0:
@@ -332,7 +332,7 @@ def decode_attribute(attr):
 
 
 # find the mft record of a file in the mft
-def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, sectorsPerCluster, bytesPerCluster):
+def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster):
     counter = 0
     final = 0
     jump = 0
@@ -340,7 +340,7 @@ def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, s
     records_in_run = -1
     run = None
     for run in parsed_data_run:
-        records_in_run = run.length * sectorsPerCluster / records_divisor
+        records_in_run = run.length * sectors_per_cluster / records_divisor
         counter += records_in_run
         if counter > targetFile:
             break
@@ -350,7 +350,7 @@ def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, s
 
     # the offset of the record where usn in \\.\c
     base = counter - records_in_run
-    records_per_cluster = sectorsPerCluster / records_divisor
+    records_per_cluster = sectors_per_cluster / records_divisor
 
     while final < targetFile:
         jump += records_per_cluster
@@ -358,7 +358,7 @@ def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, s
 
     # records over the usn
     records_too_much = final - targetFile
-    location = run.offset * bytesPerCluster + jump / records_per_cluster * bytesPerCluster - records_too_much * mft_record_size
+    location = run.offset * bytes_per_cluster + jump / records_per_cluster * bytes_per_cluster - records_too_much * mft_record_size
     handle.seek(int(location))
     record = handle.read(mft_record_size)
 
@@ -368,9 +368,9 @@ def find_file_MFT_record(handle, targetFile, parsed_data_run, mft_record_size, s
         return
 
 
-def get_core_attribute(handle, record, real_size, parsed_datarun, index, bytesPerCluster):
+def get_core_attribute(handle, record, real_size, parsed_datarun, index, bytes_per_cluster):
     entries = []
-    result = get_raw_offset(handle, parsed_datarun, real_size, bytesPerCluster, record)
+    result = get_raw_offset(handle, parsed_datarun, real_size, bytes_per_cluster, record)
     if result:
         raw, core_attribute, header_name = result
         if header_name == "$I30":
@@ -391,14 +391,14 @@ def update_record(record):
 
 
 # resolve the path to the mft reference
-def resolve(handle, path, data_run, mft_record_size, sectorsPerCluster, bytesPerCluster):
+def resolve(handle, path, data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster):
     resolved = None
     next_ref = 5
     splitted = path.split("\\")
     if len(splitted) > 2:
         for i in range(len(splitted[2:])):
             part = splitted[i + 1]
-            result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectorsPerCluster, bytesPerCluster)
+            result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
             if not result:
                 print("parsing error")
                 exit(0)
@@ -412,11 +412,11 @@ def resolve(handle, path, data_run, mft_record_size, sectorsPerCluster, bytesPer
             record_size = int.from_bytes(ntfs_attributes.index_allocation[48:48 + 8], "little")
 
             indx_entries = get_core_attribute(handle, ntfs_attributes.index_allocation, record_size, parsed_data_run,
-                                              INDEX_ALLOCATION, bytesPerCluster)
+                                              INDEX_ALLOCATION, bytes_per_cluster)
 
             next_ref = get_ref(part, indx_entries)
             if i == len(splitted[2:]) - 1:
-                result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectorsPerCluster, bytesPerCluster)
+                result = find_file_MFT_record(handle, next_ref, data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
                 if result:
                     location, record = result
                     record = update_record(record)
@@ -447,7 +447,7 @@ def get_total_clusters(entry):
     return total_clusters
 
 
-def parse_attribute_list(attribute_list, usn_ref, handle, mft_data_run, mft_record_size, sectorsPerCluster, bytesPerCluster):
+def parse_attribute_list(attribute_list, usn_ref, handle, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster):
     raw_offsets = []
     list_offset = int.from_bytes(attribute_list[20:22], byteorder="little")
     a_list = attribute_list[list_offset:]
@@ -455,7 +455,7 @@ def parse_attribute_list(attribute_list, usn_ref, handle, mft_data_run, mft_reco
     prev_size = 0
     prev_total_clusters = 0
     for tmp_ref in refs:
-        result = find_file_MFT_record(handle, tmp_ref, mft_data_run, mft_record_size, sectorsPerCluster, bytesPerCluster)
+        result = find_file_MFT_record(handle, tmp_ref, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
         if not result:
             print("Something went wrong")
             continue
@@ -467,23 +467,23 @@ def parse_attribute_list(attribute_list, usn_ref, handle, mft_data_run, mft_reco
         total_clusters = get_total_clusters(attr)
         if not attr_size:
             total_clusters = prev_total_clusters
-            attr_size = prev_size - total_clusters * bytesPerCluster
+            attr_size = prev_size - total_clusters * bytes_per_cluster
         prev_size = attr_size
         prev_total_clusters = total_clusters
         parsed = parse_data_run(record_data_run)
-        raw_offsets, core_attribute, header_name = get_raw_offset(handle, parsed, attr_size, bytesPerCluster, attr)
+        raw_offsets, core_attribute, header_name = get_raw_offset(handle, parsed, attr_size, bytes_per_cluster, attr)
 
     return raw_offsets
 
 
-def parse_attribute_data(handle, data, bytesPerCluster):
+def parse_attribute_data(handle, data, bytes_per_cluster):
     offset = int.from_bytes(data[32:34], byteorder="little")
     record_data_run = data[offset:]
 
     usn_size = int.from_bytes(data[48:48 + 8], byteorder="little")
 
     parsed = parse_data_run(record_data_run)
-    raw_offsets, core_attribute, header_name = get_raw_offset(handle, parsed, usn_size, bytesPerCluster)
+    raw_offsets, core_attribute, header_name = get_raw_offset(handle, parsed, usn_size, bytes_per_cluster)
 
     return raw_offsets
 
@@ -521,7 +521,7 @@ Created by OTORIO - www.otorio.com
 
     print("[+] Parsing boot sector")
     # Get data about the filesystem from the boot sector
-    bytesPerCluster, mft_offset, mft_record_size, sectorsPerCluster = extract_boot_sector(handle)
+    bytes_per_cluster, mft_offset, mft_record_size, sectors_per_cluster = extract_boot_sector(handle)
 
     print("[+] Getting mft record in the mft")
     # Find the mft record of the mft
@@ -534,18 +534,18 @@ Created by OTORIO - www.otorio.com
     print("[+] Finding the reference to the usnjrnl")
     mft_data_run_data = parse_mft_record(mft_record)
     mft_data_run = parse_data_run(mft_data_run_data)
-    ref = resolve(handle, target_file, mft_data_run, mft_record_size, sectorsPerCluster, bytesPerCluster)
+    ref = resolve(handle, target_file, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
 
     print("[+] Finding usnjrnl record")
-    offset, record = find_file_MFT_record(handle, ref, mft_data_run, mft_record_size, sectorsPerCluster, bytesPerCluster)
+    offset, record = find_file_MFT_record(handle, ref, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
     record = update_record(record)
 
     print("[+] Finding raw offsets on disk")
     ntfs_attributes = get_attributes(record)
     if ntfs_attributes.attribute_list:
-        raw_offsets = parse_attribute_list(ntfs_attributes.attribute_list, ref, handle, mft_data_run, mft_record_size, sectorsPerCluster, bytesPerCluster)
+        raw_offsets = parse_attribute_list(ntfs_attributes.attribute_list, ref, handle, mft_data_run, mft_record_size, sectors_per_cluster, bytes_per_cluster)
     else:
-        raw_offsets = parse_attribute_data(handle, ntfs_attributes.data, bytesPerCluster)
+        raw_offsets = parse_attribute_data(handle, ntfs_attributes.data, bytes_per_cluster)
 
     print("[+] Reading data from raw offsets")
     dump_to_file(handle, raw_offsets, output_path)
