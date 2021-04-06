@@ -19,7 +19,7 @@ python3 usnjrnl_extractor.py -o C:\temp\data.bin
 ```
 
 ## Description
-This tool is a pythonic implementation of the great [ExtractUsnJrnl](https://github.com/jschicht/ExtractUsnJrnl) by 
+This tool is a pythonic implementation based on the great [ExtractUsnJrnl](https://github.com/jschicht/ExtractUsnJrnl) by 
 Joakim Schicht.
 
 The usnjrnl:$J is an Alternate Data Stream (ADS) which contains information about changes which occur on the 
