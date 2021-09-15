@@ -510,6 +510,7 @@ Created by OTORIO - www.otorio.com
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-o", "--output", help="Output path", default="./usn.bin")
+    parser.add_argument("-d", "--volume", help="Input volume", default=r"\\.\c:")
     args = parser.parse_args()
 
     output_path = args.output
@@ -517,7 +518,7 @@ Created by OTORIO - www.otorio.com
 
     print("[+] Getting handle to physical partition")
     try:
-        handle = open(r"\\.\c:", "rb")
+        handle = open(args.volume, "rb")
     except:
         print("[!] Failed to get handle to the physical partition, are you running with administrative privileges?")
         exit(0)
